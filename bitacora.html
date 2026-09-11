@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --verde:#10a34c;
@@ -116,6 +117,10 @@
   .btn-sm{padding:5px 10px;font-size:0.75rem;}
 
   #searchInput{min-width:220px;}
+  .drive-status{font-size:0.75rem;font-weight:600;padding:4px 0;}
+  .drive-status.ok{color:var(--verde-dark);}
+  .drive-status.busy{color:var(--naranja);}
+  .drive-status.err{color:var(--rojo);}
 
   /* ---------- Layout ---------- */
   .toolbar{
@@ -498,6 +503,8 @@
     <button class="btn btn-ghost btn-sm" id="btnImportTrigger">Importar respaldo</button>
     <input type="file" id="btnImport" accept="application/json" style="display:none;">
     <button class="btn btn-ghost btn-sm" id="btnPrint">Imprimir / PDF</button>
+    <button class="btn btn-secondary btn-sm" id="btnDriveConnect">☁ Conectar Drive</button>
+    <span id="driveStatus" class="drive-status"></span>
   </div>
   <div style="font-size:0.75rem;color:var(--gris-500);" id="statsLabel"></div>
 </div>
@@ -710,6 +717,7 @@ function loadEntries(){
 }
 function saveEntries(entries){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  scheduleDriveSync();
 }
 function loadMeetingChecks(){
   try{ return JSON.parse(localStorage.getItem(MEETING_CHECK_KEY)) || {}; }
@@ -717,6 +725,7 @@ function loadMeetingChecks(){
 }
 function saveMeetingChecks(obj){
   localStorage.setItem(MEETING_CHECK_KEY, JSON.stringify(obj));
+  scheduleDriveSync();
 }
 
 /* ---------- Obras (proyectos de seguimiento) ---------- */
@@ -734,6 +743,7 @@ function loadObras(){
 }
 function saveObras(list){
   localStorage.setItem(OBRAS_KEY, JSON.stringify(list));
+  scheduleDriveSync();
 }
 let obras = loadObras();
 let currentObra = localStorage.getItem(CURRENT_OBRA_KEY) || obras[0];
@@ -1329,6 +1339,171 @@ document.getElementById('obrasList').addEventListener('click', (e) => {
     saveObras(obras);
     saveEntries(entries);
     renderObrasAdmin();
+  }
+});
+
+/* ============================================================
+   Sincronización con Google Drive (Fase 2)
+   Un solo archivo JSON en Drive actúa como base de datos
+   compartida entre dispositivos. El login de usuario/contraseña
+   de arriba sigue controlando qué obras se ven; esto es aparte:
+   cada dispositivo se "conecta" una vez con una cuenta de Google
+   que tenga acceso a ese archivo.
+   ============================================================ */
+const GOOGLE_CLIENT_ID = '210462524763-3aiboeqgh0ocrd66jt37883q5vj9e4qc.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
+const DRIVE_FILE_NAME = 'bitacora_gci_datos.json';
+const DRIVE_FILE_ID_KEY = 'bitacora_gci_drive_file_id';
+const DRIVE_WAS_CONNECTED_KEY = 'bitacora_gci_drive_was_connected';
+
+let driveAccessToken = null;
+let driveFileId = localStorage.getItem(DRIVE_FILE_ID_KEY) || null;
+let driveTokenClient = null;
+let driveSyncTimer = null;
+
+function setDriveStatus(text, kind){
+  const el = document.getElementById('driveStatus');
+  if(!el) return;
+  el.textContent = text;
+  el.className = 'drive-status' + (kind ? ' ' + kind : '');
+}
+
+function driveConnected(){ return !!driveAccessToken; }
+
+function initDriveTokenClient(callback){
+  if(!driveTokenClient){
+    driveTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: callback
+    });
+  }
+  return driveTokenClient;
+}
+
+async function driveApiFetch(url, options = {}){
+  const res = await fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: 'Bearer ' + driveAccessToken }
+  });
+  if(!res.ok){
+    const text = await res.text().catch(() => '');
+    throw new Error('Drive API error ' + res.status + ': ' + text);
+  }
+  return res;
+}
+
+async function driveFindFile(){
+  const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+  const res = await driveApiFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+  const data = await res.json();
+  return (data.files && data.files[0]) || null;
+}
+
+async function driveCreateFile(content){
+  const metadata = { name: DRIVE_FILE_NAME, mimeType: 'application/json' };
+  const boundary = 'bitacora_boundary_' + Date.now();
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n` +
+    `--${boundary}--`;
+  const res = await driveApiFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body
+  });
+  const data = await res.json();
+  return data.id;
+}
+
+async function driveReadFile(fileId){
+  const res = await driveApiFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+  return res.json();
+}
+
+async function driveWriteFile(fileId, content){
+  await driveApiFetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: content
+  });
+}
+
+function currentDbSnapshot(){
+  return JSON.stringify({ entries, obras, meetingChecks: loadMeetingChecks() });
+}
+
+function applyDbSnapshot(db){
+  entries = db.entries || [];
+  obras = (db.obras && db.obras.length) ? db.obras : [DEFAULT_OBRA];
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  localStorage.setItem(OBRAS_KEY, JSON.stringify(obras));
+  if(db.meetingChecks) localStorage.setItem(MEETING_CHECK_KEY, JSON.stringify(db.meetingChecks));
+  if(!obras.includes(currentObra) && currentObra !== ALL_OBRAS) setCurrentObra(obras[0]);
+}
+
+function scheduleDriveSync(){
+  if(!driveConnected() || !driveFileId) return;
+  clearTimeout(driveSyncTimer);
+  driveSyncTimer = setTimeout(async () => {
+    try{
+      setDriveStatus('☁ Sincronizando...', 'busy');
+      await driveWriteFile(driveFileId, currentDbSnapshot());
+      setDriveStatus('☁ Sincronizado', 'ok');
+    }catch(err){
+      setDriveStatus('☁ Error al sincronizar', 'err');
+      console.error(err);
+    }
+  }, 500);
+}
+
+function connectDrive(interactive){
+  setDriveStatus('☁ Conectando...', 'busy');
+  initDriveTokenClient(async (resp) => {
+    if(resp.error){
+      setDriveStatus(interactive ? '☁ No se pudo conectar' : '', interactive ? 'err' : '');
+      return;
+    }
+    driveAccessToken = resp.access_token;
+    localStorage.setItem(DRIVE_WAS_CONNECTED_KEY, '1');
+    document.getElementById('btnDriveConnect').textContent = '☁ Drive conectado';
+    try{
+      let file = driveFileId ? { id: driveFileId } : await driveFindFile();
+      if(file){
+        driveFileId = file.id;
+        localStorage.setItem(DRIVE_FILE_ID_KEY, driveFileId);
+        setDriveStatus('☁ Descargando datos...', 'busy');
+        const remoteDb = await driveReadFile(driveFileId);
+        const localHasData = entries.length > 0 || obras.length > 1;
+        let useRemote = true;
+        if(localHasData){
+          useRemote = confirm('Se encontraron datos en Drive. ¿Reemplazar los datos de este dispositivo por los de Drive?\n\nCancelar = conservar los de aquí y subirlos a Drive.');
+        }
+        if(useRemote){
+          applyDbSnapshot(remoteDb);
+        } else {
+          await driveWriteFile(driveFileId, currentDbSnapshot());
+        }
+      } else {
+        setDriveStatus('☁ Creando archivo en Drive...', 'busy');
+        driveFileId = await driveCreateFile(currentDbSnapshot());
+        localStorage.setItem(DRIVE_FILE_ID_KEY, driveFileId);
+      }
+      setDriveStatus('☁ Sincronizado', 'ok');
+      render();
+    }catch(err){
+      console.error(err);
+      setDriveStatus('☁ Error al conectar con Drive', 'err');
+    }
+  });
+  driveTokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+}
+
+document.getElementById('btnDriveConnect').addEventListener('click', () => connectDrive(true));
+
+window.addEventListener('load', () => {
+  if(localStorage.getItem(DRIVE_WAS_CONNECTED_KEY) && typeof google !== 'undefined' && google.accounts){
+    connectDrive(false);
   }
 });
 
