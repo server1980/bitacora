@@ -686,7 +686,11 @@ function showApp(user){
 (function initAccess(){
   const session = localStorage.getItem(SESSION_KEY);
   if(session && USERS.some(u => u.user === session)){
-    showApp(session);
+    // Diferido: showApp()->render() usa variables (obras, entries) que
+    // se declaran más abajo en este mismo script. Sin este setTimeout,
+    // un usuario con sesión guardada rompe todo el script por acceder
+    // a esas variables antes de que existan (TDZ de let/const).
+    setTimeout(() => showApp(session), 0);
   }
   document.getElementById('accessForm').addEventListener('submit', async (e) => {
     e.preventDefault();
