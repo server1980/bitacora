@@ -19,6 +19,65 @@
 
 ---
 
+## 1.1 Cómo trabaja el usuario (preferencias)
+
+- Escribe rápido y coloquial, a veces con faltas. Hay que interpretar la intención, no corregirlo.
+- Manda **capturas de pantalla de Opus** y **fotos de notas manuscritas de campo**. Hay que transcribirlas
+  con cuidado y **marcar las lecturas dudosas** en lugar de adivinar.
+- Prefiere entregables en **Excel** (resúmenes, controles de avance, matrices).
+- Quiere respuestas con números concretos y tablas listas para capturar en Opus.
+- **No subir ni hacer commit de nada sin verificar.** Si pide parar, se para y se espera. Si pide descartar,
+  se borra.
+- Le interesa aprender: explicar el porqué de cada ajuste (rendimiento, equipo, unidad) con referencias.
+
+---
+
+## 1.2 Uso de Opus (software de precios unitarios)
+
+Opus (Ecosoft) es donde vive el presupuesto real. Claude **no opera Opus directamente**. El flujo es:
+1. El usuario manda una captura de la matriz o del catálogo, o exporta el reporte de Opus a Excel o PDF.
+2. Claude analiza (rendimientos, equipo, unidades, costos horarios, consistencia) y compara contra
+   referencias (tabuladores SICT o CDMX, análisis de terceros, rendimientos típicos).
+3. Claude devuelve **una tabla lista para capturar en Opus**: clave, cantidad, rendimiento y costo, con el
+   importe esperado para que el usuario verifique que cuadra.
+
+Lo que se ve en las capturas de Opus del usuario:
+- **Pantalla del concepto:** Tipo, Clave (ej. 1.20), Descripción, Unidad, Cantidad, Precio unitario, Total.
+- **Pestañas de la matriz con su subtotal:** Todos (= costo directo), Materiales, Mano de obra, Herramientas,
+  Equipos, Auxiliares, Matrices, Fletes, Trabajos.
+- **Columnas del detalle:** C, Clave, Descripción, Unidad, Cantidad, Rendimiento, Costo unitario, Total,
+  Define rendimiento.
+  - Con **"Define rendimiento"** marcado, la cantidad = 1 / rendimiento. Se captura el rendimiento y Opus
+    calcula la cantidad.
+  - En el **cargo SSPA** viene desmarcado: la cantidad se captura directa (jornadas-hombre).
+  - La columna **C** muestra "H" en equipos y "+" en el cargo SSPA. Su significado exacto está
+    **por confirmar con el usuario**.
+- **Herramienta menor:** unidad "(%)mo", cantidad 0.03 (3%). Su costo unitario es la suma de la mano de obra
+  (incluye el SSPA).
+- **Equipos:** se cobran por hora; las horas van ligadas a la cuadrilla (6.7857 hr efectivas por jornada).
+- **Catálogo de costos horarios:** cada equipo tiene dos registros: costo horario ("Hora") y costo de
+  adquisición ("-VA", "pieza"). Ej.: EQP140 generador 5 kW = $67.48/hr y EQP140-VA = $38,000.
+  Bases de datos que aparecen: "GCI MAQUINARIA", "OBRA MECÁNICA", "OBRA INDUSTRIAL".
+- **Prefijos de clave GCI:** GCI-MAT (materiales), GCI-MO (mano de obra), GCI-HER (herramienta),
+  GCI-EQ (equipo), EQP### (maquinaria del catálogo de costos horarios).
+- **Salarios con FASAR** (ya integrados en el costo unitario): peón $1,050.25/jor, albañil $1,284.87/jor,
+  cabo de oficiales $2,227.34/jor. Cargo SSPA $180.89 por jornada-hombre (vigía contraincendio 0.05,
+  supervisor de seguridad 0.04, etc.).
+
+Checklist para revisar cualquier matriz de Opus:
+1. ¿La **unidad** es la correcta para cómo se mide en obra? (ej. escarificado superficial: m², no m³).
+2. ¿El **rendimiento** está dentro del rango de referencia para las condiciones reales (acceso,
+   profundidad, altura, permisos SSPA)?
+3. ¿El **equipo** es del tamaño adecuado? (caso real: una planta de soldar de 85 hp para un rotomartillo
+   de 115 V).
+4. ¿Las **horas de equipo** son consistentes con las jornadas de la cuadrilla?
+5. ¿El **cargo SSPA** = jornadas-hombre totales de la cuadrilla?
+6. ¿Los **costos horarios** son coherentes entre equipos de valor de adquisición parecido?
+7. ¿Hay insumos que no aplican o que faltan (andamio, agua, acarreos, limpieza)?
+8. Comparar el PU contra una referencia oficial y explicar la diferencia.
+
+---
+
 ## 2. Proyecto: matriz de precios unitarios de puentes (base SICT)
 
 Plan completo en `PROYECTO_MATRIZ_PUENTES.md` (fases, estructura de carpetas, esquema de datos y prompts).
@@ -137,3 +196,7 @@ bien los dados. Los 4 dados adicionales son para Luis Guerrero.
 2. Abrir Claude Code en esa carpeta. `CLAUDE.md` le indica leer este archivo.
 3. Al terminar cada sesión, pedir: *"actualiza CONOCIMIENTO_GCI.md con lo de hoy y haz commit y push"*.
 4. Antes de empezar en cualquier PC: `git pull` para traer lo último.
+5. Solo se comparte **conocimiento** (este archivo y los planes). Los archivos pesados (PDF, bases de Opus)
+   se quedan en cada PC.
+6. En la PC con Opus: exportar los reportes de Opus (matrices, catálogo, insumos) a Excel en una carpeta
+   local y pedirle a Claude Code que los lea desde ahí.
