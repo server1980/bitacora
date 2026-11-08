@@ -200,3 +200,25 @@ bien los dados. Los 4 dados adicionales son para Luis Guerrero.
    se quedan en cada PC.
 6. En la PC con Opus: exportar los reportes de Opus (matrices, catálogo, insumos) a Excel en una carpeta
    local y pedirle a Claude Code que los lea desde ahí.
+
+---
+
+## 7. Neodata: versiones y convertidor (en curso, noviembre 2026)
+
+- El software de PU en la PC **CISCO-UCS** es **Neodata Precios Unitarios 2021** (el mensaje de error lo
+  nombra así). Al abrir un catálogo hecho con una versión más nueva, dice: *"El catálogo de obras es de una
+  versión más reciente de Precios Unitarios 2021. Actualice el sistema"*.
+- Descarga de Neodata `Construbases_Octubre_2026_Intercambio.zip`: trae 4 bases (Concursos, Constructor,
+  Desarrollador, Remodelador). Cada una tiene `...Xn_Presupuesto.xlsx` y
+  `...Xn_FasarXn_FasarEstandar_UMA-Nva_ReformaXn_PESOS.xls`. **Los zip internos están cifrados (AES) y
+  necesitan la contraseña que da Neodata.** No romperla: pedirla al usuario o que él los descomprima.
+- Idea del convertidor (de versión nueva a vieja):
+  - Trabajar sobre los archivos de **intercambio (Excel)**, no sobre la base SQL nativa, que cambia en cada versión.
+  - Partes: lector → mapeo de columnas por versión → escritor con el formato 2021 → validación
+    (número de conceptos, suma de matrices = PU, total) → reporte de lo que no se puede pasar.
+  - Para armarlo hacen falta: respaldo o intercambio de la **versión nueva** + respaldo o intercambio de
+    una obra hecha con **Neodata 2021**, para comparar estructuras. También confirmar si la 2021 importa intercambio.
+- En CISCO-UCS, Neodata usa SQL Server local. Una sesión de Claude Code **abierta en esa PC** puede
+  consultarlo directo (`sqlcmd` / SSMS). Una sesión en la nube no lo ve: solo puede trabajar con respaldos subidos.
+- Carpetas de Remote Control en CISCO-UCS: "neodata claude", "proyectos consolidados", "varios claude".
+  Todavía no se pueden usar desde sesiones en la nube (probablemente hay que actualizar la app de Claude en Windows).
